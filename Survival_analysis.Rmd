@@ -12,13 +12,96 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r load library}
 library(survival)
+library(ranger)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(ggfortify)
 ```
 
 ## Including Plots
 
 You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-
+```{r load data}
+data(veteran)
+head(veteran)
 ```
+*Kaplan Meier Survival Curve*
+```{r}
+# Build the standard survival object
+# Kaplan Meier Survival Curve
+# “+” after the time indicates censoring
+km <- with(veteran, Surv(time, status))
+head(km,80)
+```
+
+
+
+```{r}
+# Produce the Kaplan-Meier estimates of the probability of survival 
+km_fit <- survfit(Surv(time, status) ~ 1, data = veteran)
+
+# Print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter
+summary(km_fit, times = c(1,30,60,90*(1:10)))
+
+plot(km_fit, xlab="Days", main = 'Kaplan Meyer Plot')
+```
+```{r}
+# survival curve by treatment
+# Treatment: 1 = standard, 2 = test
+
+veteran <- veteran %>% 
+  mutate(trt = factor(trt, labels = c("standard", "test")))
+
+km_trt_fit <- survfit(Surv(time, status) ~ trt, data = veteran)
+autoplot(km_trt_fit, main = "Kaplan Meyer Plot by Treatment")
+```
+```{r}
+# Survival by age
+
+# Create age categorical variable
+vet <- veteran %>% 
+  mutate(AG = ifelse((age > 60), "OV60", "LT60"),
+         AG = factor(AG),
+         prior = factor(prior, labels = c("no", "yes")))
+
+km_AG_fit <- survfit(Surv(time, status) ~ AG, data = vet)
+
+autoplot(km_AG_fit, main = "Kaplan Meyer Plot by Age")
+```
+
+```{r}
+# Survival by prior treatment
+km_AG_fit <- survfit(Surv(time, status) ~ prior, data = vet)
+autoplot(km_AG_fit, main = "Kaplan Meyer Plot by prior treatment")
+```
+
+*Cox Proportional Hazards Model*
+```{r}
+# Cox Proportional Hazards Model
+
+# fit variate
+cox <- coxph(Surv(time, status) ~ trt + celltype + karno + diagtime + age + prior , 
+             data = vet)
+summary(cox)
+# From the summary, small cell type, adeno cell type and karno are significant.
+# Caution!!
+# Cox model assumes that the covariates do not vary with time (Karno varies over time)
+
+cox_fit <- survfit(cox)
+autoplot(cox_fit)
+```
+```{r}
+# Aalen’s additive regression model
+# which assumes that the cumulative hazard H(t) = a(t) + X B(t), where a(t) is a 
+# time-dependent intercept term, X is the vector of covariates for the subject (possibly 
+# time-dependent), and B(t) is a time-dependent matrix of coefficients.
+
+aa_fit <-aareg(Surv(time, status) ~ trt + celltype + karno + diagtime + age + prior, 
+                 data = vet)
+aa_fit
+autoplot(aa_fit)
+```
+https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/
 
