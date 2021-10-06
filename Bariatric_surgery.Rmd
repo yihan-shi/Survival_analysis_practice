@@ -1,0 +1,47 @@
+---
+title: "Bariatric_surgery"
+author: "Yihan Shi"
+date: "10/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load library}
+library(survival)
+library(ranger)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(ggfortify)
+library(devtools)
+library(OIsurv)
+```
+
+```{r load data}
+data <- load("recur.RData")
+data
+
+# bariatric surgery
+b_outcom
+b_expsum
+b_enroll
+
+# control surgery 
+
+# claim-level information
+# only claims which correspond to an alcohol-related outcome
+# FROM_DT variable = date of the claim, outcome for each individual patient (PAT_ID) can be tracked through date
+c_outcom
+
+# patient level characteristics for the year prior to the index surgery
+# sums of how many times patients had a claim for various conditions (may adjust for baseline)
+view(c_expsum)
+
+# patient level characteristics
+# “index” variable is the date of the first relevant surgery
+view(c_enroll) 
+```
+
