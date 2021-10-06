@@ -17,17 +17,43 @@ library(ggplot2)
 library(dplyr)
 library(tidyverse)
 library(ggfortify)
+library(devtools)
+library(OIsurv)
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
 
 ```{r load data}
 data(veteran)
 head(veteran)
 ```
+
+*Cumulative hazards*
+
+```{r}
+# create a survival object
+with(veteran, Surv(time, status))
+my.fit <- survfit(Surv(time, status) ~ 1, data = veteran)
+names(my.fit)
+
+# hazard = -log(S)
+H.hat <- -log(my.fit$surv)
+H.hat <- c(H.hat, tail(H.hat, 1)) 
+H.hat[!is.infinite(H.hat)]
+
+# A summary plot or table created using H.hat with my.fit$time
+h.sort.of <- my.fit$n.event / my.fit$n.risk
+H.tilde <- cumsum(h.sort.of)
+H.tilde <- c(H.tilde, tail(H.tilde, 1))
+ 
+# plotting
+plot(c(my.fit$time, 250), H.hat, xlab="time", ylab="cumulative hazard",
+main="comparing cumulative hazards")
+# ylim=range(c(H.hat, H.tilde)), type="s")
+points(c(my.fit$time, 250), H.tilde, lty=2, type="s")
+legend("topleft", legend=c("H.hat","H.tilde"), lty=1:2)
+```
+
 *Kaplan Meier Survival Curve*
+
 ```{r}
 # Build the standard survival object
 # Kaplan Meier Survival Curve
@@ -78,6 +104,7 @@ autoplot(km_AG_fit, main = "Kaplan Meyer Plot by prior treatment")
 ```
 
 *Cox Proportional Hazards Model*
+
 ```{r}
 # Cox Proportional Hazards Model
 
@@ -103,5 +130,54 @@ aa_fit <-aareg(Surv(time, status) ~ trt + celltype + karno + diagtime + age + pr
 aa_fit
 autoplot(aa_fit)
 ```
+
+
+*Parametric Proportional Hazards Model*
+
+
+
+*Accelerated Failure Time (AFT) Models*
+```{r}
+attach(veteran)
+aft_fitexp <- survreg(Surv(time, status) ~ as.factor(trt) + age, dist = "exponential")
+summary(aft_fitexp)
+
+# parameters
+aft_fitexp$icoef
+```
+
+```{r}
+attach(veteran)
+aft_fit <- survreg(Surv(time, status) ~ as.factor(trt) + age, dist = "weibull")
+summary(aft_fit)
+
+# parameters
+aft_fit$icoef
+
+detach(veteran)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/
 
