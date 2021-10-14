@@ -23,25 +23,90 @@ library(OIsurv)
 ```{r load data}
 data <- load("recur.RData")
 data
-
-# bariatric surgery
-b_outcom
-b_expsum
-b_enroll
-
-# control surgery 
-
-# claim-level information
-# only claims which correspond to an alcohol-related outcome
-# FROM_DT variable = date of the claim, outcome for each individual patient (PAT_ID) can be tracked through date
-c_outcom
-
-# patient level characteristics for the year prior to the index surgery
-# sums of how many times patients had a claim for various conditions (may adjust for baseline)
-view(c_expsum)
-
-# patient level characteristics
-# “index” variable is the date of the first relevant surgery
-view(c_enroll) 
 ```
 
+## Data dictionary
+In *x_outcome* dataset, 
+Claim-level information - only claims which correspond to an alcohol-related outcome
+alc: alcohol outcomes
+FROM_DT: date of the claim (alcohol outcome), outcome for each individual patient (PAT_ID) can be tracked through date
+
+*If days are consecutive, count as 1 occurrence*
+
+*b_enroll* dataset contains patient level characteristics
+# index = fist relevavnt surgery date
+```{r bariatric surgery}
+# Do we need to change all potential independent variables to factors?
+b_outcom <- b_outcom %>% 
+  mutate(alc = factor(alc),
+         alcabuse = factor(alcabuse),
+         alcgastr = factor(alcgastr),
+         ald = factor(ald),
+         alcpois = factor(alcpois),
+         alcblood = factor(alcblood))
+
+b_expsum
+b_enroll
+```
+
+*c_expsum* dataset contains patient level characteristics for the year prior to the indexed surgery date
+sums of how many times patients had a claim for various conditions (may adjust for baseline)
+
+```{r control surgery }
+c_outcom
+c_expsum
+c_enroll
+```
+
+## Cleaning
+```{r cleaning 1}
+# Make a data set with unique combinations of patient ID & FROM_DT for outcom
+b_outcom_unique <-  b_outcom %>% 
+  filter(!duplicated(PAT_ID,FROM_DT))
+
+c_outcom_unique <-  c_outcom %>% 
+  filter(!duplicated(PAT_ID,FROM_DT))
+
+dim(c_outcom_unique)
+dim(c_outcom)
+```
+
+```{r cleaning 2}
+# Join enroll, outcom, and expsum
+b_outcome_enroll <- b_enroll %>% 
+  left_join(b_outcom, c("pat_id" = "PAT_ID"))
+
+b_all <- b_outcome_enroll %>% 
+  left_join(b_expsum, c("pat_id" = "PAT_ID"))
+```
+
+```{r cleaning 3}
+# alc.x = current
+# alc.y = previous year
+```
+
+*Cumulative hazards*
+
+```{r}
+# create a survival object
+with(b_all, Surv(depression, alc.x))
+my.fit <- survfit(Surv(depression, alc.x) ~ 1, data = b_all)
+names(my.fit)
+
+# hazard = -log(S)
+H.hat <- -log(my.fit$surv)
+H.hat <- c(H.hat, tail(H.hat, 1)) 
+H.hat[!is.infinite(H.hat)]
+
+# A summary plot or table created using H.hat with my.fit$time
+h.sort.of <- my.fit$n.event / my.fit$n.risk
+H.tilde <- cumsum(h.sort.of)
+H.tilde <- c(H.tilde, tail(H.tilde, 1))
+ 
+# plotting
+plot(c(my.fit$time, 250), H.hat, xlab="time", ylab="cumulative hazard",
+main="comparing cumulative hazards")
+# ylim=range(c(H.hat, H.tilde)), type="s")
+points(c(my.fit$time, 250), H.tilde, lty=2, type="s")
+legend("topleft", legend=c("H.hat","H.tilde"), lty=1:2)
+```
