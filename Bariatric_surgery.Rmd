@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r load library}
+```{r load library, cache = TRUE}
 library(survival)
 library(ranger)
 library(ggplot2)
@@ -18,9 +18,10 @@ library(tidyverse)
 library(ggfortify)
 library(devtools)
 library(OIsurv)
+library(lubridate)
 ```
 
-```{r load data}
+```{r load data, cache = TRUE}
 data <- load("recur.RData")
 data
 ```
@@ -77,7 +78,12 @@ b_all <- b_outcome_enroll %>%
          alcpois.x = replace_na(alcpois.x, 0),
          alcsuic.x = replace_na(alcsuic.x, 0),
          alcblood.x = replace_na(alcblood.x, 0),
-         )
+         # create time (days) until event happen
+         time = case_when(
+           !is.na(FROM_DT) ~ difftime(FROM_DT, clm_frst, units = c("days")),
+           is.na(FROM_DT) ~ difftime(clm_last, clm_frst,units = c("days"))
+         ),
+         surgery_type = "b")
 
 # sum(b_enroll$pat_id %in% b_all$pat_id)
 
@@ -96,17 +102,23 @@ c_outcome_enroll <- c_enroll %>%
 
 c_all <- c_outcome_enroll %>% 
   left_join(c_expsum, c("pat_id" = "PAT_ID")) %>% 
-  mutate(der_age = 2021 - der_yob)
+  mutate(der_age = 2021 - der_yob,
+         alc.x = replace_na(alc.x, 0),
+         alcabuse.x = replace_na(alcabuse.x, 0),
+         alcdep.x = replace_na(alcdep.x, 0),
+         alcgastr.x = replace_na(alcgastr.x, 0),
+         ald.x = replace_na(ald.x, 0),
+         alcpois.x = replace_na(alcpois.x, 0),
+         alcsuic.x = replace_na(alcsuic.x, 0),
+         alcblood.x = replace_na(alcblood.x, 0),
+         # create time (days) until event happen
+         time = case_when(
+           !is.na(FROM_DT) ~ difftime(FROM_DT, clm_frst, units = c("days")),
+           is.na(FROM_DT) ~ difftime(clm_last, clm_frst,units = c("days"))
+         ),
+         surgery_type = "c")
 
 sum(c_enroll$pat_id %in% c_all$pat_id)
-```
-
-
-```{r cleaning 3}
-# alc.x = current
-# alc.y = previous year
-
-
 ```
 
 ## Summary statistics for patients
@@ -132,7 +144,72 @@ c_all %>%
 c_perc_alc <- dim(c_outcom_unique)[1]/dim(c_enroll)[1]
 ```
 
+
+```{r cleaning 3}
+# alc.x = current
+# alc.y = previous year
+
+all <- bind_rows(b_all, c_all)
+```
+
+## Kaplan-Meier estimate of survivor function
+```{r}
+# Build the standard survival object
+# Kaplan Meier Survival Curve
+# “+” after the time indicates censoring
+km <- with(b_all, Surv(time, alc.x))
+head(km,80)
+```
+
+```{r}
+# Produce the Kaplan-Meier estimates of the probability of survival 
+km_fit <- survfit(Surv(time, alc.x) ~ 1, data = b_all)
+
+# Print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter
+summary(km_fit, times = c(1,500,1000,1500*(1:5)))
+
+plot(km_fit, xlab="Days", main = 'Kaplan Meyer Plot for bariatric surgery related outcome')
+```
+
+```{r}
+# survival curve by surgery type
+all <- all %>% 
+  mutate(surgery_type = factor(surgery_type, labels = c("Bariatric", "Cholecystectomy")))
+
+km_trt_fit <- survfit(Surv(time, alc.x) ~ surgery_type, data = all)
+autoplot(km_trt_fit, main = "Kaplan Meyer Plot by Surgery type")
+```
+
+```{r}
+# Survival by age
+# same plot for b & c?
+
+# Bariatric
+b_all_agewise <- b_all %>% 
+  # Create age categorical variable
+  mutate(AG = ifelse((der_age > 50), "OV60", "LT60"),
+         AG = factor(AG))
+         #prior = factor(alc.y))
+
+km_AG_fit <- survfit(Surv(time, alc.x) ~ AG, data = b_all_agewise)
+
+autoplot(km_AG_fit, main = "Kaplan Meyer Plot by Age in Bariatric invididuals")
+
+# Cholecystectomy
+c_all_agewise <- c_all %>% 
+  # Create age categorical variable
+  mutate(AG = ifelse((der_age > 50), "OV60", "LT60"),
+         AG = factor(AG))
+         #prior = factor(alc.y))
+
+km_AG_fit <- survfit(Surv(time, alc.x) ~ AG, data = b_all_agewise)
+
+autoplot(km_AG_fit, main = "Kaplan Meyer Plot by Age in Cholecystectomy invididuals")
+```
+
+
 ## Common Cox proportional model
+
 *Cumulative hazards*
 
 ```{r}
