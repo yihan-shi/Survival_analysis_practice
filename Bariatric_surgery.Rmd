@@ -36,17 +36,9 @@ FROM_DT: date of the claim (alcohol outcome), outcome for each individual patien
 *b_enroll* dataset contains patient level characteristics
 # index = fist relevavnt surgery date
 ```{r bariatric surgery}
-# Do we need to change all potential independent variables to factors?
-b_outcom <- b_outcom %>% 
-  mutate(alc = factor(alc),
-         alcabuse = factor(alcabuse),
-         alcgastr = factor(alcgastr),
-         ald = factor(ald),
-         alcpois = factor(alcpois),
-         alcblood = factor(alcblood))
-
+b_outcom # 1361 unique rows
 b_expsum
-b_enroll
+b_enroll # 48997 rows
 ```
 
 *c_expsum* dataset contains patient level characteristics for the year prior to the indexed surgery date
@@ -59,32 +51,88 @@ c_enroll
 ```
 
 ## Cleaning
-```{r cleaning 1}
+```{r cleaning b}
 # Make a data set with unique combinations of patient ID & FROM_DT for outcom
 b_outcom_unique <-  b_outcom %>% 
-  filter(!duplicated(PAT_ID,FROM_DT))
+  filter(!duplicated(PAT_ID,FROM_DT)) 
 
+# check NA values in a column
+sum(is.na(b_outcom_unique$FROM_DT))
+
+# Join enroll, outcom, and expsum
+b_outcome_enroll <- b_enroll %>% 
+  left_join(b_outcom_unique, c("pat_id" = "PAT_ID"))
+
+# check NA values in a column
+dim(b_outcome_enroll)[1] - sum(is.na(b_outcome_enroll$FROM_DT))
+
+b_all <- b_outcome_enroll %>% 
+  left_join(b_expsum, c("pat_id" = "PAT_ID")) %>% 
+  mutate(der_age = 2021 - der_yob,
+         alc.x = replace_na(alc.x, 0),
+         alcabuse.x = replace_na(alcabuse.x, 0),
+         alcdep.x = replace_na(alcdep.x, 0),
+         alcgastr.x = replace_na(alcgastr.x, 0),
+         ald.x = replace_na(ald.x, 0),
+         alcpois.x = replace_na(alcpois.x, 0),
+         alcsuic.x = replace_na(alcsuic.x, 0),
+         alcblood.x = replace_na(alcblood.x, 0),
+         )
+
+# sum(b_enroll$pat_id %in% b_all$pat_id)
+
+# dim(b_outcom_unique)
+# dim(b_outcom)
+```
+
+
+```{r cleaning c}
 c_outcom_unique <-  c_outcom %>% 
   filter(!duplicated(PAT_ID,FROM_DT))
 
-dim(c_outcom_unique)
-dim(c_outcom)
-```
-
-```{r cleaning 2}
 # Join enroll, outcom, and expsum
-b_outcome_enroll <- b_enroll %>% 
-  left_join(b_outcom, c("pat_id" = "PAT_ID"))
+c_outcome_enroll <- c_enroll %>% 
+  left_join(c_outcom_unique, c("pat_id" = "PAT_ID"))
 
-b_all <- b_outcome_enroll %>% 
-  left_join(b_expsum, c("pat_id" = "PAT_ID"))
+c_all <- c_outcome_enroll %>% 
+  left_join(c_expsum, c("pat_id" = "PAT_ID")) %>% 
+  mutate(der_age = 2021 - der_yob)
+
+sum(c_enroll$pat_id %in% c_all$pat_id)
 ```
+
 
 ```{r cleaning 3}
 # alc.x = current
 # alc.y = previous year
+
+
 ```
 
+## Summary statistics for patients
+```{r}
+b_all %>% 
+  select(der_sex, der_age) %>% 
+  summarise(med_age = median(der_age),
+            min_age = min(der_age),
+            max_age = max(der_age),
+            q1_age = quantile(der_age, 1/4),
+            q3_age = quantile(der_age, 3/4))
+
+b_perc_alc <- dim(b_outcom_unique)[1]/dim(b_enroll)[1]
+
+c_all %>% 
+  select(der_sex, der_age) %>% 
+  summarise(med_age = median(der_age),
+            min_age = min(der_age),
+            max_age = max(der_age),
+            q1_age = quantile(der_age, 1/4),
+            q3_age = quantile(der_age, 3/4))
+
+c_perc_alc <- dim(c_outcom_unique)[1]/dim(c_enroll)[1]
+```
+
+## Common Cox proportional model
 *Cumulative hazards*
 
 ```{r}
