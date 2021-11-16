@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(survival)
 library(survminer)
 library(ranger)
+library(gt)
 library(ggplot2)
 library(dplyr)
 library(tidyverse)
@@ -56,9 +57,25 @@ c_enroll
 ## Cleaning
 ```{r cleaning b}
 # Make a data set with unique combinations of patient ID & FROM_DT for outcom
-b_outcom_unique <-  b_outcom %>% 
-  filter(!duplicated(PAT_ID,FROM_DT)) 
+# mistake here: one patient ID should be associated with multiple FROM_DT
 
+b_outcom_unique <- b_outcom %>% 
+  distinct(PAT_ID, FROM_DT, .keep_all = TRUE)
+
+# require(data.table)
+# b_outcom_unique <- data.table(b_outcom_unique)
+# b_outcom_unique[, Index := 1:.N , by = c("PAT_ID")]
+# 
+# # Index is the counter
+# b_outcom_unique <- b_outcom_unique %>% 
+#   select(Index, everything()) %>% 
+  
+b_outcom_longer <- b_outcom_unique %>% 
+  group_by(PAT_ID) %>% 
+  mutate(row_n = row_number()) %>% 
+  pivot_wider(PAT_ID, names_from = row_n, values_from = FROM_DT, 
+              names_glue = "Occurrence{row_n}")
+  
 # check NA values in a column
 sum(is.na(b_outcom_unique$FROM_DT))
 
@@ -94,8 +111,14 @@ b_all <- b_outcome_enroll %>%
 
 
 ```{r cleaning c}
-c_outcom_unique <-  c_outcom %>% 
-  filter(!duplicated(PAT_ID,FROM_DT))
+c_outcom_unique <- c_outcom %>% 
+  distinct(PAT_ID, FROM_DT, .keep_all = TRUE)
+  
+c_outcom_longer <- c_outcom_unique %>% 
+  group_by(PAT_ID) %>% 
+  mutate(row_n = row_number()) %>% 
+  pivot_wider(PAT_ID, names_from = row_n, values_from = FROM_DT, 
+              names_glue = "Occurrence{row_n}")
 
 # Join enroll, outcom, and expsum
 c_outcome_enroll <- c_enroll %>% 
@@ -117,8 +140,6 @@ c_all <- c_outcome_enroll %>%
            !is.na(FROM_DT) ~ as.numeric(difftime(FROM_DT, index.x, units = c("days"))), 
            is.na(FROM_DT) ~ as.numeric(difftime(clm_last, index.x,units = c("days")))),
          surgery_type = "c")
-
-sum(c_enroll$pat_id %in% c_all$pat_id)
 ```
 
 ## Summary statistics for patients
@@ -152,12 +173,18 @@ c_perc_alc <- dim(c_outcom_unique)[1]/dim(c_enroll)[1]
 all <- bind_rows(b_all, c_all)
 ```
 
+
+```{r}
+# sample data
+b_all
+```
+
 ## Kaplan-Meier estimate of survivor function
 ```{r}
 # Build the standard survival object
 # Kaplan Meier Survival Curve
 # “+” after the time indicates censoring
-km <- with(b_all, Surv(time, alc.x))
+km <- with(b_all, Surv(time, alc.x)) 
 head(km,80)
 ```
 
@@ -177,9 +204,48 @@ all <- all %>%
   mutate(surgery_type = factor(surgery_type, labels = c("Bariatric", "Cholecystectomy")),
          status = ifelse(is.na(i), 1, 2)) # 1 = censored, 2= alcohol outcome
 
-
+# Kaplan-Meyer
 km_trt_fit <- survfit(Surv(time, alc.x) ~ surgery_type, data = all)
-autoplot(km_trt_fit, main = "Kaplan Meyer Plot by Surgery type")
+  
+plot(km_trt_fit, 
+         main = "Kaplan Meyer estimate of the survivor function for alcohol-related outcome",
+         xlab = "First alcohol-related outcome",
+         ylab = "Estimated survivor function",
+     newdata = list(surgery_type = "Cholecystectomy"),
+     col = "blue")
+lines(km_trt_fit, 
+         main = "Kaplan Meyer estimate of the survivor function for alcohol-related outcome",
+         xlab = "First alcohol-related outcome",
+         ylab = "Estimated survivor function",
+     newdata = list(surgery_type = "Bariatric"),
+     col = "red")
+     
+
+plot(predict(exp_plot,
+             newdata = list(surgery_type = "Cholecystectomy"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01), 
+     col = "blue",
+     type = "l",
+     xlab = "Time",
+     ylab = "Estimated survivor function")
+lines(predict(exp_plot, 
+              newdata = list(surgery_type = "Bariatric"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "red")
+legend("topright", legend = c("Bariatric", "Cholecystectomy"),
+       col = c("red", "blue"), lty = 1:1, cex=0.8)
+
+# Nelson-Aalen
+na_fit <- survfit(Surv(time, alc.x) ~ surgery_type, type="fh", data = all)
+autoplot(na_fit, 
+         main = "Nelson-Aalen estimate of the survivor function for alcohol-related outcome",
+         xlab = "First alcohol-related outcome",
+         ylab = "Estimated survivor function") + 
+  theme_minimal() 
 ```
 
 ```{r}
@@ -214,6 +280,51 @@ autoplot(km_AG_fit, main = "Kaplan Meyer Plot by Age in Cholecystectomy invididu
 *Cumulative hazards*
 
 ```{r}
+# exponential fit
+all <- all %>% 
+  filter(time > 0)
+
+exp_plot <- survreg(Surv(time, alc.x) ~ surgery_type, data = all, dist="exponential")
+plot(predict(exp_plot,
+             newdata = list(surgery_type = "Cholecystectomy"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01), 
+     col = "blue",
+     type = "l",
+     xlab = "Time",
+     ylab = "Estimated survivor function")
+lines(predict(exp_plot, 
+              newdata = list(surgery_type = "Bariatric"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "red")
+legend("topright", legend = c("Bariatric", "Cholecystectomy"),
+       col = c("red", "blue"), lty = 1:1, cex=0.8)
+
+# weibull fit
+weib_plot <- survreg(Surv(time, alc.x) ~ surgery_type, data = all, dist="weibull")
+plot(predict(weib_plot,
+             newdata = list(surgery_type = "Cholecystectomy"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01), 
+     col = "blue",
+     type = "l",
+     xlab = "Time",
+     ylab = "Estimated survivor function")
+lines(predict(weib_plot, 
+              newdata = list(surgery_type = "Bariatric"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "red")
+legend("topright", legend = c("Bariatric", "Cholecystectomy"),
+       col = c("red", "blue"), lty = 1:1, cex=0.8)
+```
+
+```{r}
 # create a survival object
 with(b_all, Surv(depression, alc.x))
 my.fit <- survfit(Surv(depression, alc.x) ~ 1, data = b_all)
@@ -243,18 +354,31 @@ legend("topleft", legend=c("H.hat","H.tilde"), lty=1:2)
 # count combination of patient_id and FROM_DT, no recurrences?
 alc.all <- all %>%
   # select(pat_id, FROM_DT, index.y, alc.x, surgery_type, time) %>% 
-  filter(!is.na(index.y)
-  # group_by(pat_id) %>% 
-  # count(FROM_DT) %>% 
-  # filter(n > 1)
+  filter(!is.na(index.y))
+  group_by(pat_id) %>% 
+  count(FROM_DT) %>% 
+  filter(n > 1)
 ```
 
 https://shariq-mohammed.github.io/files/cbsa2019/1-intro-to-survival.html
 ```{r}
 # cox fit 
-cox.fit <- coxph(Surv(time, status) ~ der_age + der_sex, data = all)
-summary(cox.fit)
-survdiff(Surv(time, status)~ der_age + der_sex, data = all)
+fit <- survfit(Surv(time, alc.x) ~ surgery_type, data = all)
+ggsurvplot(fit, data = all, risk.table = TRUE, size = 1,
+           legend = "top",
+           # pval = TRUE,
+           linetype = "strata",
+           fun = "pct",
+           legend.title = "Surgery type",
+           legend.labs = c("Bariatric Surgery",
+                           "Cholecystectomy"))
+
+# cum hazard
+ggsurvplot(fit, data = all, fun = "cumhaz", legend.title = "Surgery type")
+
+# table summary
+coxph(Surv(time, alc.x) ~ surgery_type, data = all) %>% 
+  gtsummary::tbl_regression(exp = TRUE)
 
 # diagnostic plot 
 # PH assumption
@@ -279,5 +403,14 @@ weibull.all <- all %>%
   filter(time != 0)
 
 (fit <- survreg(Surv(time, alc.x) ~ der_age, data = weibull.all))
+```
+```{r}
+b_all_temp <- b_all %>% 
+  mutate(period = clm_last - clm_frst)
+max(b_all_temp$period)
+c_all_temp <- c_all %>% 
+  mutate(period = clm_last - clm_frst)
+max(c_all_temp$period)
+
 ```
 
