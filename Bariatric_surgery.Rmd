@@ -57,34 +57,22 @@ c_enroll
 ## Cleaning
 ```{r cleaning b}
 # Make a data set with unique combinations of patient ID & FROM_DT for outcom
-# mistake here: one patient ID should be associated with multiple FROM_DT
-
 b_outcom_unique <- b_outcom %>% 
   distinct(PAT_ID, FROM_DT, .keep_all = TRUE)
-
-# require(data.table)
-# b_outcom_unique <- data.table(b_outcom_unique)
-# b_outcom_unique[, Index := 1:.N , by = c("PAT_ID")]
-# 
-# # Index is the counter
-# b_outcom_unique <- b_outcom_unique %>% 
-#   select(Index, everything()) %>% 
-  
+ 
+# this dataset only contains patient ID and occurrences 
 b_outcom_longer <- b_outcom_unique %>% 
   group_by(PAT_ID) %>% 
   mutate(row_n = row_number()) %>% 
   pivot_wider(PAT_ID, names_from = row_n, values_from = FROM_DT, 
-              names_glue = "Occurrence{row_n}")
+              names_glue = "Occurrence{row_n}") 
   
-# check NA values in a column
+# check NA values in a column = 0
 sum(is.na(b_outcom_unique$FROM_DT))
 
 # Join enroll, outcom, and expsum
 b_outcome_enroll <- b_enroll %>% 
   left_join(b_outcom_unique, c("pat_id" = "PAT_ID"))
-
-# check NA values in a column
-dim(b_outcome_enroll)[1] - sum(is.na(b_outcome_enroll$FROM_DT))
 
 b_all <- b_outcome_enroll %>% 
   left_join(b_expsum, c("pat_id" = "PAT_ID")) %>% 
@@ -173,12 +161,6 @@ c_perc_alc <- dim(c_outcom_unique)[1]/dim(c_enroll)[1]
 all <- bind_rows(b_all, c_all)
 ```
 
-
-```{r}
-# sample data
-b_all
-```
-
 ## Kaplan-Meier estimate of survivor function
 ```{r}
 # Build the standard survival object
@@ -189,7 +171,7 @@ head(km,80)
 ```
 
 ```{r}
-# Produce the Kaplan-Meier estimates of the probability of survival 
+# Produce the Kaplan-Meier estimates of the probability of survival - bariatric patients
 km_fit <- survfit(Surv(time, alc.x) ~ 1, data = b_all)
 
 # Print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter
@@ -199,7 +181,7 @@ plot(km_fit, xlab="Days", main = 'Kaplan Meyer Plot for bariatric surgery alcoho
 ```
 
 ```{r}
-# survival curve by surgery type
+# survival curve by surgery types
 all <- all %>% 
   mutate(surgery_type = factor(surgery_type, labels = c("Bariatric", "Cholecystectomy")),
          status = ifelse(is.na(i), 1, 2)) # 1 = censored, 2= alcohol outcome
@@ -249,8 +231,6 @@ autoplot(na_fit,
 ```
 
 ```{r}
-# Survival by age
-
 # Bariatric
 b_all_agewise <- b_all %>% 
   # Create age categorical variable
@@ -354,7 +334,7 @@ legend("topleft", legend=c("H.hat","H.tilde"), lty=1:2)
 # count combination of patient_id and FROM_DT, no recurrences?
 alc.all <- all %>%
   # select(pat_id, FROM_DT, index.y, alc.x, surgery_type, time) %>% 
-  filter(!is.na(index.y))
+  filter(!is.na(index.y)) %>% 
   group_by(pat_id) %>% 
   count(FROM_DT) %>% 
   filter(n > 1)
@@ -382,7 +362,7 @@ coxph(Surv(time, alc.x) ~ surgery_type, data = all) %>%
 
 # diagnostic plot 
 # PH assumption
-ggcoxzph(cox.zph(cox.fit))
+# ggcoxzph(cox.zph(cox.fit))
 # residuals
 ggcoxdiagnostics(cox.fit, type = "deviance",
                  linear.predictions = FALSE, 
@@ -391,7 +371,7 @@ ggcoxdiagnostics(cox.fit, type = "deviance",
 
 ```{r}
 # patient that have alcohol outcome
-ggplot(alc.all, aes(x = der_age, y = time)) +
+ggplot(all, aes(x = der_age, y = time)) +
     geom_point(aes(color = factor(surgery_type), alpha = 0.2))+
     ggtitle("Censored obs. in red") +
     theme_bw()
@@ -404,13 +384,14 @@ weibull.all <- all %>%
 
 (fit <- survreg(Surv(time, alc.x) ~ der_age, data = weibull.all))
 ```
+
 ```{r}
+# longest follow-up period
 b_all_temp <- b_all %>% 
   mutate(period = clm_last - clm_frst)
 max(b_all_temp$period)
 c_all_temp <- c_all %>% 
   mutate(period = clm_last - clm_frst)
 max(c_all_temp$period)
-
 ```
 
