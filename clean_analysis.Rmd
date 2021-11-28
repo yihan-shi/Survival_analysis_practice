@@ -1,0 +1,218 @@
+---
+title: "clean_analysis"
+author: "Yihan Shi"
+date: "11/28/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load library, cache = TRUE}
+library(survival)
+library(survminer)
+library(ranger)
+library(gt)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(ggfortify)
+library(devtools)
+# library(OIsurv)
+library(lubridate)
+```
+ 
+Pat_id: ID
+Enr_frst: date of first enrollment in coverage
+Enr_last: date of last enrollment in coverage
+Der_sex: sex
+Der_yob: year of birth
+Pat_region: census region of patient
+Gbp: indicator for gastric bypass
+Slg: indicator for sleeve gastrectomy
+Agb: indicator for adjustable gastric band
+Dds: indicator for duodenal switch
+Depression: indicator for presence of depression prior to surgery (one year window)
+Anxiety: indicator for presence of anxiety prior to surgery (one year window)
+Cci: Charlson comorbidity index (one year window prior to surgery)
+FROM_DT: date of alcohol outcome – NA means that this patient did not experience an outcome and their event type should be a censoring at their enr_last
+Alcabuse: indicator for alcohol outcome (in this case, specifically a claim related to acute alcohol abuse)
+
+```{r load data, cache = TRUE}
+data <- load("recur_211127.RData")
+data
+```
+
+```{r}
+head(bariatric)
+head(i)
+```
+```{r summary}
+bariatric <- bariatric%>%
+  mutate(der_age = 2021 - der_yob,
+         time = case_when(
+           !is.na(FROM_DT) ~ as.numeric(difftime(FROM_DT, enr_frst, units = c("days"))), 
+           is.na(FROM_DT) ~ as.numeric(difftime(enr_last, enr_frst, units = c("days")))),
+         censored = ifelse(is.na(FROM_DT), 1, 0)) # 1 = censored/no outcome, 0 = alcohol outcome
+
+# age distribution
+bariatric %>% 
+  select(der_sex, der_age) %>% 
+  summarise(med_age = median(der_age),
+            min_age = min(der_age),
+            max_age = max(der_age),
+            q1_age = quantile(der_age, 1/4),
+            q3_age = quantile(der_age, 3/4))
+
+# percentage alc 
+alc_count <- bariatric %>% 
+  count(is.na(FROM_DT)) %>% 
+  mutate(freq = n/sum(n)) # 4.8% experience alcohol outcome
+
+# by surgery types
+b_longer <- bariatric %>% 
+  pivot_longer(
+    cols = c("gbp", "slg", "agb", "dds"), # there is no dds patients
+    names_to = "type") %>% 
+  filter(value == 1)
+```
+
+## KM
+
+```{r}
+# Produce the Kaplan-Meier estimates of the probability of survival - bariatric patients
+km_fit <- survfit(Surv(time, censored) ~ type, data = b_longer)
+
+# Print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter
+summary(km_fit, times = c(1, 500, 1000, 1500*(1:5)))
+
+plot(km_fit, 
+     main = 'Kaplan Meyer Plot for bariatric surgery alcohol related outcome',
+     xlab = "First alcohol-related outcome",
+     ylab = "Survival Probabilities",
+     col = c("blue", "dark green", "red"),
+     lty = c("solid", "dashed", "dotted"))
+legend("topright", 
+       c("slg", "gbp", "agb"), 
+       col = c("blue", "dark green", "red"),
+       lty = c("solid", "dashed", "dotted"))
+```
+
+## NA
+
+```{r}
+na_fit <- survfit(Surv(time, censored) ~ type, type = "fh", data = b_longer)
+autoplot(na_fit, 
+         main = "Nelson-Aalen estimate of the survivor function for alcohol-related outcome",
+         xlab = "First alcohol-related outcome",
+         ylab = "Estimated survivor function") + 
+  theme_minimal() 
+```
+
+## Common Cox proportional model
+
+*Cumulative hazards*
+
+```{r}
+# exponential fit
+exp_plot <- survreg(Surv(time, censored) ~ type, data = b_longer, dist = "exponential")
+plot(predict(exp_plot,
+             newdata = list(type = "slg"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01), 
+     col = "blue",
+     type = "l",
+     xlab = "Time",
+     ylab = "Estimated survivor function",
+     lty = "solid")
+lines(predict(exp_plot, 
+              newdata = list(type = "gbp"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "dark green",
+      lty = "dashed")
+lines(predict(exp_plot, 
+              newdata = list(type = "agb"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "red",
+      lty = "dotted")
+legend("topright", 
+       c("slg", "gbp", "agb"), 
+       col = c("blue", "dark green", "red"),
+       lty = c("solid", "dashed", "dotted"))
+```
+
+```{r}
+# weibull fit
+weib_plot <- survreg(Surv(time, censored) ~ type, data = b_longer, dist = "weibull")
+plot(predict(weib_plot,
+             newdata = list(type = "slg"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01), 
+     col = "blue",
+     type = "l",
+     xlab = "Time",
+     ylab = "Estimated survivor function",
+     lty = "solid")
+lines(predict(weib_plot, 
+              newdata = list(type = "gbp"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "dark green",
+      lty = "dashed")
+lines(predict(weib_plot, 
+              newdata = list(type = "agb"),
+              type="quantile", 
+              p = seq(.01,.99,by = .01)), 
+      seq(.99,.01,by  =-.01), 
+      col = "red",
+      lty = "dotted")
+legend("topright", 
+       c("slg", "gbp", "agb"), 
+       col = c("blue", "dark green", "red"))
+```
+## Cox fit
+```{r}
+# cox fit 
+ggsurvplot(km_fit, data = b_longer, risk.table = TRUE, size = 1,
+           legend = "top",
+           linetype = "strata",
+           fun = "pct",
+           legend.title = "Surgery type",
+           legend.labs = c("agb", "gbp", "slg"),
+           risk.table.height = 0.32)
+
+# cum hazard
+ggsurvplot(km_fit, data = b_longer, fun = "cumhaz", legend.title = "Surgery type")
+
+# table summary
+coxph(Surv(time, censored) ~ type, data = b_longer) %>% 
+  gtsummary::tbl_regression(exp = TRUE)
+```
+
+## Recurrent event models
+
+```{r}
+bariatric_alc <- b_longer %>% 
+  # filter(!is.na(FROM_DT)) %>% 
+  group_by(pat_id) %>% 
+  arrange(pat_id, FROM_DT) %>% 
+  mutate(diff = FROM_DT - lag(FROM_DT), 
+         diff_days = as.numeric(diff, units = 'days'))
+  
+```
+
+1. Andersen-Gill (AG) model
+```{r}
+model.1 <- coxph(Surv(tstart,tstop,status) ~ var1 + var2+ … + vark, method=”breslow”, robust=TRUE, data = example1)
+summary(model.1)
+
+```
+
