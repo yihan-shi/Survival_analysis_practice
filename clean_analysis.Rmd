@@ -41,19 +41,47 @@ Alcabuse: indicator for alcohol outcome (in this case, specifically a claim rela
 
 ```{r load data, cache = TRUE}
 data <- load("recur_211127.RData")
+data2 <- load("recur.RData")
 data
+data2
 ```
 
 ```{r}
 head(bariatric)
 head(i)
 ```
+
+```{r merge}
+bariatric <- bariatric %>% 
+  inner_join(b_enroll, c("pat_id" = "pat_id")) %>% 
+  select("pat_id", "enr_frst.x", "enr_last.x", "der_sex.x", "der_yob.x", "pat_region.x",
+         "gbp", "slg", "agb", "dds", "depression", "anxiety", "cci", "FROM_DT", "alcabuse",
+         "index") %>% 
+  rename(enr_frst = enr_frst.x,
+         enr_last = enr_last.x,
+         der_sex = der_sex.x,
+         der_yob = der_yob.x,
+         pat_region = pat_region.x)
+
+chole <- chole %>% 
+  inner_join(c_enroll, c("pat_id" = "pat_id")) %>% 
+  select("pat_id", "enr_frst.x", "enr_last.x", "der_sex.x", "der_yob.x", "pat_region.x",
+         "depression", "anxiety", "cci", "FROM_DT", "alcabuse",
+         "index") %>% 
+  rename(enr_frst = enr_frst.x,
+         enr_last = enr_last.x,
+         der_sex = der_sex.x,
+         der_yob = der_yob.x,
+         pat_region = pat_region.x)
+```
+
+
 ```{r summary}
-bariatric <- bariatric%>%
+bariatric <- bariatric %>%
   mutate(der_age = 2021 - der_yob,
          time = case_when(
-           !is.na(FROM_DT) ~ as.numeric(difftime(FROM_DT, enr_frst, units = c("days"))), 
-           is.na(FROM_DT) ~ as.numeric(difftime(enr_last, enr_frst, units = c("days")))),
+           !is.na(FROM_DT) ~ as.numeric(difftime(FROM_DT, index, units = c("days"))), 
+           is.na(FROM_DT) ~ as.numeric(difftime(enr_last, index, units = c("days")))),
          censored = ifelse(is.na(FROM_DT), 1, 0)) # 1 = censored/no outcome, 0 = alcohol outcome
 
 # age distribution
@@ -91,11 +119,11 @@ plot(km_fit,
      main = 'Kaplan Meyer Plot for bariatric surgery alcohol related outcome',
      xlab = "First alcohol-related outcome",
      ylab = "Survival Probabilities",
-     col = c("blue", "dark green", "red"),
+     col = c("red", "dark green", "blue"),
      lty = c("solid", "dashed", "dotted"))
 legend("topright", 
-       c("slg", "gbp", "agb"), 
-       col = c("blue", "dark green", "red"),
+       c("agb", "gbp", "slg"), 
+       col = c("red", "dark green", "blue"),
        lty = c("solid", "dashed", "dotted"))
 ```
 
@@ -199,15 +227,56 @@ coxph(Surv(time, censored) ~ type, data = b_longer) %>%
 
 ## Recurrent event models
 
-```{r}
-bariatric_alc <- b_longer %>% 
-  # filter(!is.na(FROM_DT)) %>% 
-  group_by(pat_id) %>% 
-  arrange(pat_id, FROM_DT) %>% 
-  mutate(diff = FROM_DT - lag(FROM_DT), 
-         diff_days = as.numeric(diff, units = 'days'))
-  
+```{r test}
+# tstart/tstop for an individual
+test <-  b_longer %>% 
+  filter(pat_id == "0268AAAAAABHWZFP") %>%
+  mutate(diff = time - lag(time)) %>% 
+  mutate(diff = ifelse(censored == 0 & is.na(diff), 0, diff)) 
+
+         
+test <- test %>% 
+  mutate(n = 1:n()) %>% 
+  mutate(tstop = ifelse(n == 1, test[n+1,]$diff - 1, 0),
+         tstart = 0) %>% 
+  select("pat_id", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
+
+for(i in 2:dim(test)[1]){
+    test$tstart[i] <- test[i-1,]$tstop + 1
+    test$tstop[i] <- test[i,]$tstart + test[i+1,]$diff - 1
+}
+
+# test[dim(test)[1], "tstart"] <- test[dim(test)[1]-1,]$tstop + 1
+test$tstop[dim(test)[1]] <- as.numeric(difftime(test$enr_last[dim(test)[1]], 
+                                                test$index[dim(test)[1]], 
+                                                units = c("days")))
+
+test
 ```
+
+```{r}
+# time interval for all patients
+
+# create a vector of patients 
+bariatric_alc <- b_longer %>% 
+  arrange(pat_id, FROM_DT) %>% 
+  group_by(pat_id) %>% 
+  count() %>% 
+  filter(n > 1)
+  mutate(diff = time - lag(time)) %>% 
+  mutate(diff = ifelse(censored == 0 & is.na(diff), 0, diff)) %>% 
+  mutate(diff = ifelse(censored == 1, as.numeric(difftime(enr_last, index, units = c("days"))),
+                       diff))
+```
+
+```{r set tstart and tstop}
+bariatric_alc_wide <- bariatric_alc %>% 
+  arrange(pat_id, FROM_DT) %>% 
+  group_by(pat_id)
+```
+
+
+
 
 1. Andersen-Gill (AG) model
 ```{r}
