@@ -103,7 +103,9 @@ b_longer <- bariatric %>%
   filter(value == 1)
 ```
 ```{r check how many have experienced alc}
-
+ds <- b_longer %>% 
+  distinct(pat_id, censored) %>% 
+  count(censored)
 ```
 
 
