@@ -46,10 +46,6 @@ data
 data2
 ```
 
-```{r}
-head(bariatric)
-head(i)
-```
 
 ```{r merge}
 bariatric <- bariatric %>% 
@@ -81,8 +77,9 @@ bariatric <- bariatric %>%
   mutate(der_age = 2021 - der_yob,
          time = case_when(
            !is.na(FROM_DT) ~ as.numeric(difftime(FROM_DT, index, units = c("days"))), 
-           is.na(FROM_DT) ~ as.numeric(difftime(clm_last, index, units = c("days")))),
-         censored = ifelse(is.na(FROM_DT), 1, 0)) # 1 = censored/no outcome, 0 = alcohol outcome
+           is.na(FROM_DT) ~ as.numeric(difftime(enr_last, index, units = c("days")))),
+         censored = ifelse(is.na(FROM_DT), 1, 0)) %>%  # 1 = censored/no outcome, 0 = alcohol outcome
+  filter(time > 0)
 
 # age distribution
 bariatric %>% 
@@ -105,6 +102,10 @@ b_longer <- bariatric %>%
     names_to = "type") %>% 
   filter(value == 1)
 ```
+```{r check how many have experienced alc}
+
+```
+
 
 ## KM
 
@@ -131,11 +132,21 @@ legend("topright",
 
 ```{r}
 na_fit <- survfit(Surv(time, censored) ~ type, type = "fh", data = b_longer)
-autoplot(na_fit, 
-         main = "Nelson-Aalen estimate of the survivor function for alcohol-related outcome",
-         xlab = "First alcohol-related outcome",
-         ylab = "Estimated survivor function") + 
-  theme_minimal() 
+plot(na_fit, 
+     main = 'Nelson-Aalen Plot for bariatric surgery alcohol related outcome',
+     xlab = "First alcohol-related outcome",
+     ylab = "Survival Probabilities",
+     col = c("red", "dark green", "blue"),
+     lty = c("solid", "dashed", "dotted"))
+legend("topright", 
+       c("agb", "gbp", "slg"), 
+       col = c("red", "dark green", "blue"),
+       lty = c("solid", "dashed", "dotted"))
+# autoplot(na_fit, 
+#          main = "Nelson-Aalen estimate of the survivor function for alcohol-related outcome",
+#          xlab = "First alcohol-related outcome",
+#          ylab = "Estimated survivor function") + 
+#   theme_minimal() 
 ```
 
 ## Common Cox proportional model
@@ -152,9 +163,10 @@ plot(predict(exp_plot,
      seq(.99,.01,by = -.01), 
      col = "blue",
      type = "l",
+     main = "Cox proportional model based on exponential distribution",
      xlab = "Time",
      ylab = "Estimated survivor function",
-     lty = "solid")
+     lty = "dotted")
 lines(predict(exp_plot, 
               newdata = list(type = "gbp"),
               type="quantile", 
@@ -168,10 +180,10 @@ lines(predict(exp_plot,
               p = seq(.01,.99,by = .01)), 
       seq(.99,.01,by  =-.01), 
       col = "red",
-      lty = "dotted")
+      lty = "solid")
 legend("topright", 
-       c("slg", "gbp", "agb"), 
-       col = c("blue", "dark green", "red"),
+       c("agb", "gbp", "slg"), 
+       col = c("red", "dark green", "blue"),
        lty = c("solid", "dashed", "dotted"))
 ```
 
@@ -185,9 +197,10 @@ plot(predict(weib_plot,
      seq(.99,.01,by = -.01), 
      col = "blue",
      type = "l",
+     main = "Cox proportional model based on exponential distribution",
      xlab = "Time",
      ylab = "Estimated survivor function",
-     lty = "solid")
+     lty = "dotted")
 lines(predict(weib_plot, 
               newdata = list(type = "gbp"),
               type="quantile", 
@@ -201,12 +214,13 @@ lines(predict(weib_plot,
               p = seq(.01,.99,by = .01)), 
       seq(.99,.01,by  =-.01), 
       col = "red",
-      lty = "dotted")
+      lty = "solid")
 legend("topright", 
-       c("slg", "gbp", "agb"), 
-       col = c("blue", "dark green", "red"),
+       c("agb", "gbp", "slg"), 
+       col = c("red", "dark green", "blue"),
        lty = c("solid", "dashed", "dotted"))
 ```
+
 ## Cox fit
 ```{r}
 # cox fit 
@@ -240,7 +254,7 @@ test <- test %>%
   mutate(n = 1:n()) %>% 
   mutate(tstop = ifelse(n == 1, test[n+1,]$diff - 1, 0),
          tstart = 0) %>% 
-  select("pat_id", "time", "diff", "n", "tstart", "tstop", "clm_last", "index")
+  select("pat_id", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
 
 for(i in 2:dim(test)[1]){
     test$tstart[i] <- test[i-1,]$tstop + 1
@@ -248,19 +262,19 @@ for(i in 2:dim(test)[1]){
 }
 
 # test[dim(test)[1], "tstart"] <- test[dim(test)[1]-1,]$tstop + 1
-test$tstop[dim(test)[1]] <- as.numeric(difftime(test$clm_last[dim(test)[1]], 
+test$tstop[dim(test)[1]] <- as.numeric(difftime(test$enr_last[dim(test)[1]], 
                                                 test$index[dim(test)[1]], 
                                                 units = c("days")))
 
 test
 ```
 
-
-
-```{r set tstart and tstop - 2 patients}
+```{r set tstart and tstop - 3 patients, sample dataset}
 # tstart/tstop for an individual
 test <-  b_longer %>% 
-  filter(pat_id %in% c("0268AAAAAABHWZFP", "0309AAAAAAAAFGLS")) %>%
+  filter(pat_id %in% c("0268AAAAAABHWZFP", 
+                       "0309AAAAAAAAFGLS", 
+                       "0309AAAAAAAASPAO")) %>%
   group_by(pat_id) %>% 
   mutate(diff = time - lag(time)) %>% 
   mutate(diff = ifelse(censored == 0 & is.na(diff), 0, diff)) 
@@ -270,7 +284,7 @@ a_test <- unique(test$pat_id)
 
 # create empty dataframe
 output <- data.frame(matrix(ncol = 8, nrow = 0))
-x <- c("pat_id", "time", "diff", "n", "tstart", "tstop", "clm_last", "index")
+x <- c("pat_id", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
 colnames(output) <- x
 
 for(i in 1:length(unique(a_test))){
@@ -282,20 +296,23 @@ for(i in 1:length(unique(a_test))){
   mutate(n = 1:n()) %>% 
   mutate(tstop = ifelse(n == 1, df[n+1,]$diff - 1, 0),
          tstart = 0) %>% 
-  select("pat_id", "time", "diff", "n", "tstart", "tstop", "clm_last", "index")
+  select("pat_id", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
   
   for(j in 2:dim(df)[1]){
     df$tstart[j] <- df[j-1,]$tstop + 1
     df$tstop[j] <- df[j,]$tstart + df[j+1,]$diff - 1
   }
   
-  df$tstop[dim(df)[1]] <- as.numeric(difftime(df$clm_last[dim(df)[1]], 
+  df$tstop[dim(df)[1]] <- as.numeric(difftime(df$enr_last[dim(df)[1]], 
                                                 df$index[dim(df)[1]], 
                                                 units = c("days")))
   output <- rbind(output, df)
 }
 
-output
+output 
+example <- output %>% 
+  select("pat_id", "n", "tstart", "tstop") %>% 
+  rename(event = n)
 ```
 
 ```{r set tstart and tstop - recurrent patients}
@@ -311,7 +328,7 @@ patients <- unique(b_recurrent$pat_id)
 
 # create empty dataframe
 output_rec <- data.frame(matrix(ncol = 8, nrow = 0))
-x <- c("pat_id", "time", "diff", "n", "tstart", "tstop", "clm_last", "index")
+x <- c("pat_id", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
 colnames(output_rec) <- x
 
 for(i in 1:length(unique(patients))){
@@ -323,14 +340,14 @@ for(i in 1:length(unique(patients))){
   mutate(n = 1:n()) %>% 
   mutate(tstop = ifelse(n == 1, df[n+1,]$diff - 1, 0),
          tstart = 0) %>% 
-  select("pat_id", "time", "diff", "n", "tstart", "tstop", "clm_last", "index")
+  select("pat_id", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
   
   for(j in 2:dim(df)[1]){
     df$tstart[j] <- df[j-1,]$tstop + 1
     df$tstop[j] <- df[j,]$tstart + df[j+1,]$diff - 1
   }
   
-  df$tstop[dim(df)[1]] <- as.numeric(difftime(df$clm_last[dim(df)[1]], 
+  df$tstop[dim(df)[1]] <- as.numeric(difftime(df$enr_last[dim(df)[1]], 
                                                 df$index[dim(df)[1]], 
                                                 units = c("days")))
   
@@ -354,7 +371,7 @@ b_nonalc <- b_longer %>%
   group_by(pat_id) %>% 
   filter(censored == 1) %>% 
   mutate(tstart = 0,
-         tstop = as.numeric(difftime(clm_last, index, units = c("days"))),
+         tstop = as.numeric(difftime(enr_last, index, units = c("days"))),
          n = 1) %>% 
   select("pat_id", "n", "tstart", "tstop")
 
@@ -373,7 +390,7 @@ recur_data <- output_all %>%
 
 1. Andersen-Gill (AG) model
 ```{r AG}
-model_AG <- coxph(Surv(tstart, tstop, censored) ~ type, 
+model_AG <- coxph(Surv(tstart, tstop, censored) ~ type + cluster(pat_id), 
                  method = "breslow", 
                  cluster = pat_id,
                  robust = TRUE, data = recur_data)
@@ -386,6 +403,7 @@ plot(survfit(model_AG))
 model_AG %>% 
   gtsummary::tbl_regression(exp = TRUE)
 ```
+
 ```{r PWP-TT model}
 # PWP-TT model
 model_pwptt <- coxph(Surv(tstart, tstop, censored) ~ type + cluster(pat_id) + strata(n),
