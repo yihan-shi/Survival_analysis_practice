@@ -40,10 +40,11 @@ FROM_DT: date of alcohol outcome – NA means that this patient did not experien
 Alcabuse: indicator for alcohol outcome (in this case, specifically a claim related to acute alcohol abuse)
 
 ```{r load data, cache = TRUE}
-data <- load("recur_211127.RData")
-data2 <- load("recur.RData")
+data <- load("/Users/yihanshi/Desktop/Duke_2021-22/Jiang research/Survival_analysis_practice/data/recur_211127.RData")
+data2 <- load("/Users/yihanshi/Desktop/Duke_2021-22/Jiang research/Survival_analysis_practice/data/recur.RData")
 data
 data2
+b_outcom # con_num not missing = hospital claim
 ```
 
 
@@ -102,10 +103,11 @@ b_longer <- bariatric %>%
     names_to = "type") %>% 
   filter(value == 1)
 ```
+
 ```{r check how many have experienced alc}
 ds <- b_longer %>% 
-  distinct(pat_id, censored) %>% 
-  count(censored)
+  group_by(censored) %>% 
+  count()
 ```
 
 

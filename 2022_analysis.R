@@ -27,7 +27,7 @@ library(dplyr)
 library(tidyverse)
 library(ggfortify)
 library(devtools)
-# library(OIsurv)
+library(OIsurv)
 library(lubridate)
 
 
@@ -148,6 +148,7 @@ km_fit <- survfit(Surv(time, status) ~ type, data = km_all)
 # Print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter
 summary(km_fit, times = c(1, 300, 800, 1000*(1:4)))
 
+par(mar=c(1,1,1,1))
 plot(km_fit,
      main = 'Kaplan Meyer Plot for bariatric surgery revisions',
      xlab = "Revision time",
@@ -177,9 +178,107 @@ legend("bottomright",
        col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
        lty = c("solid", "dashed", "dotted", "dotdash"))
 
-# Cox ---------------------------------------------------------------------
+# Cox exp---------------------------------------------------------------------
+exp_plot <- survreg(Surv(time, status) ~ type,
+                    data = km_all, dist = "exponential")
+plot(predict(exp_plot,
+             newdata = list(type = "agb"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01),
+     col = "#000000",
+     type = "l",
+     main = "Cox proportional model based on exponential distribution",
+     xlab = "Time",
+     ylab = "Estimated survivor function",
+     lty = "solid")
+lines(predict(exp_plot,
+              newdata = list(type = "gbp"),
+              type="quantile",
+              p = seq(.01,.99,by = .01)),
+      seq(.99,.01,by  =-.01),
+      col = "#E69F00",
+      lty = "dashed")
+lines(predict(exp_plot,
+              newdata = list(type = "slg"),
+              type="quantile",
+              p = seq(.01,.99,by = .01)),
+      seq(.99,.01,by  =-.01),
+      col = "#56B4E9",
+      lty = "dotted")
+lines(predict(exp_plot,
+              newdata = list(type = "dds"),
+              type="quantile",
+              p = seq(.01,.99,by = .01)),
+      seq(.99,.01,by  =-.01),
+      col = "#009E73",
+      lty = "dotdash")
+legend("topright",
+       c("agb", "gbp", "slg", "dds"),
+       col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
+       lty = c("solid", "dashed", "dotted", "dotdash"))
 
 
+# Cox weibull -----------------------------------------------------------------
+weib_plot <- survreg(Surv(time, status) ~ type,
+                     data = km_all, dist = "weibull")
+plot(predict(weib_plot,
+             newdata = list(type = "agb"),
+             type = "quantile",
+             p = seq(.01,.99, by=.01)),
+     seq(.99,.01,by = -.01),
+     col = "#000000",
+     type = "l",
+     main = "Cox proportional model based on exponential distribution",
+     xlab = "Time",
+     ylab = "Estimated survivor function",
+     lty = "solid")
+lines(predict(weib_plot,
+              newdata = list(type = "gbp"),
+              type="quantile",
+              p = seq(.01,.99,by = .01)),
+      seq(.99,.01,by  =-.01),
+      col = "#E69F00",
+      lty = "dashed")
+lines(predict(weib_plot,
+              newdata = list(type = "slg"),
+              type="quantile",
+              p = seq(.01,.99,by = .01)),
+      seq(.99,.01,by  =-.01),
+      col = "#56B4E9",
+      lty = "dotted")
+lines(predict(weib_plot,
+              newdata = list(type = "dds"),
+              type="quantile",
+              p = seq(.01,.99,by = .01)),
+      seq(.99,.01,by  =-.01),
+      col = "#009E73",
+      lty = "dotdash")
+legend("topright",
+       c("agb", "gbp", "slg", "dds"),
+       col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
+       lty = c("solid", "dashed", "dotted", "dotdash"))
+
+
+# cox fit -----------------------------------------------------------------
+ggsurvplot(km_fit, data = km_all, risk.table = TRUE, size = 1,
+           legend = "top",
+           linetype = "strata",
+           fun = "pct",
+           legend.title = "Surgery type",
+           legend.labs = c("agb", "gbp", "slg", "dds"),
+           risk.table.height = 0.32)
+
+# cum hazard
+ggsurvplot(km_fit, data = km_all, fun = "cumhaz",
+           legend.title = "Surgery type")
+
+# table summary
+coxph(Surv(time, status) ~ type, data = km_all) %>%
+  gtsummary::tbl_regression(exp = TRUE)
+
+
+# recurrent event ---------------------------------------------------------
 
 
 
