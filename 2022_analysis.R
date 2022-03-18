@@ -31,6 +31,11 @@
 
 # do the same for 2 years
 
+# look at the definition of "revision", how many days in the future count as revision?
+# look at other claim analysis
+# time to the first event = time to the 2nd occurrence
+# pretend no one has follow-up after 3 years
+
 
 # load libraries ----------------------------------------------------------
 library(survival)
@@ -63,7 +68,7 @@ surgeries <- events %>%
   inner_join(enroll, c("PAT_ID" = "pat_id")) %>%
   select("PAT_ID", "index", "FROM_DT", "gbp", "slg", "agb", "dds", "gjs",
          "rev_of_agb", "rem_of_agb", "hhr", "ejs", "rev_of_gjs", "enr_last")
-
+view(surgeries)
 
 # revision patients (non-recurrent) -------------------------------------------------------
 multiple <- surgeries %>%
@@ -84,11 +89,15 @@ repeated <- surgeries %>%
     names_to = "type") %>%
   filter(value == 1) %>%
   select(-value) %>%
-  mutate(time = as.numeric(FROM_DT - lag(index)),
-         status = 1) %>% # observed event
-  filter(!time %in% c(NA, 0))
+  mutate(time = as.numeric(FROM_DT - index)) %>% # observed event
+  filter(!time %in% c(NA, 0) & (time >= 0 & time <= 1096)) %>%
+  mutate(status = ifelse(time == 1096, 0, 1))
 
-# view(repeated)
+  # mutate(censor_time = ifelse(time > 1096, NA, time)) %>%
+  # filter(!is.na(censor_time))
+# if event happens after 3 years, also get rid of the patients
+
+view(repeated)
 
 # no revision patients ----------------------------------------------------
 uniq <- surgeries %>%
@@ -108,96 +117,90 @@ uniq_cases <- surgeries %>%
     names_to = "type") %>%
   filter(value == 1) %>%
   select(-value) %>%
-  mutate(time = as.numeric(difftime(enr_last, index, units = c("days"))),
-         status = 0) %>%
-  # these patients only have 1 outcome, so artificially censor at 3 years
-  mutate(censor_time = ifelse(time < 1096, NA, 1096)) %>%
-  filter(!is.na(censor_time))
+  mutate(time = as.numeric(difftime(enr_last, index, units = c("days")))) %>%
+  filter(!time %in% c(NA, 0) & (time >=0 & time <= 1096)) %>%
+  mutate(status = ifelse(time == 1096, 0, 1))
 
+view(uniq_cases)
 
 # combine patient types ---------------------------------------------------
 all_patients <- rbind(uniq_cases, repeated) %>%
   group_by(PAT_ID) %>%
   mutate(occurrence = row_number()) %>%
+  arrange(PAT_ID, occurrence) %>%
+  mutate(first_surgery = first(type)) %>%
   filter(time > 0)
 
-view(all_patients)
+# view(all_patients)
 
 ## gbp = index surgery
 gbp <- all_patients %>%
-  filter(occurrence == 1 & type == "gbp")
-gbp_patient <- gbp$PAT_ID
+  filter(first_surgery == "gbp")
+# gbp_fit <- survfit(Surv(time, status) ~ 1, data = gbp)
 
 ## slg = index surgery
 slg <- all_patients %>%
-  filter(occurrence == 1 & type == "slg")
-slg_patient <- slg$PAT_ID
+  filter(first_surgery == "slg")
+# slg_fit <- survfit(Surv(time, status) ~ 1, data = slg)
 
 ## agb = index surgery
 agb <- all_patients %>%
-  filter(occurrence == 1 & type == "agb")
-agb_patient <- agb$PAT_ID
+  filter(first_surgery == "agb")
+# agb_fit <- survfit(Surv(time, status) ~ 1, data = agb)
 
-## dds = index surgery
+# dds = index surgery
 dds <- all_patients %>%
-  filter(occurrence == 1 & type == "dds")
-dds_patient <- dds$PAT_ID
-dds_surv <- all_patients %>%
-  filter(PAT_ID %in% dds_patient)
-
-
-## combine & limit to the first event after index surgery
-# km_all <- rbind(dds_surv, agb_surv, slg_surv, gbp_surv)
-km_all <- rbind(dds, agb, slg, gbp)
-view(km_all)
+  filter(first_surgery == "dds")
+# dds_fit <- survfit(Surv(time, status) ~ 1, data = dds)
 
 # Kaplan-Meier -------------------------------------------------------
-# Produce the Kaplan-Meier estimates of the probability of survival
-# time to the first event
-
-km <- with(km_all, Surv(time, status) ~ type)
-km_fit <- survfit(Surv(time, status) ~ type, data = km_all)
-
+# Produce the Kaplan-Meier estimates of the probability of survival (time to 1st event)
+km_all <- rbind(agb, slg, gbp, dds)
+km_fit <- survfit(Surv(time, status) ~ first_surgery, data = km_all)
 # Print the estimates for 1, 30, 60 and 90 days, and then every 90 days thereafter
-summary(km_fit, times = c(1, 300, 800, 1000*(1:4)))
+summary(km_fit, times = c(1, 300, 800, 1000*(1:10)))
 
 par(mar = c(3,3,3,3))
 plot(km_fit,
+     conf.int = FALSE,
      main = 'Kaplan Meyer Plot for bariatric surgery revisions',
      xlab = "Revision time",
      ylab = "Survival Probabilities",
-     col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
+     col = c("#000000", "#840018", "#56B4E9", "#009E73"),
      lty = c("solid", "dashed", "dotted", "dotdash"),
-     lwd = 2)
+     lwd = 2,
+     xlim = c(0,365),
+     ylim = c(0.6,1))
 legend("topright",
-       c("agb", "dds", "gbp", "slg"),
-       col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
+       c("agb", "dds","gbp", "slg"),
+       col = c("#000000", "#840018", "#56B4E9", "#009E73"),
        lty = c("solid", "dashed", "dotted", "dotdash"))
 
 
 
 # Nelson-Aalen ------------------------------------------------------------
-na_fit <- survfit(Surv(time, status) ~ type, type = "fh", data = km_all)
-summary(na_fit, times = c(1, 300, 800, 1000*(1:4)))
-
+na_fit <- survfit(Surv(time, status) ~ first_surgery, type = "fh", data = km_all)
 par(mar = c(3,3,3,3))
 plot(na_fit,
+     conf.int = FALSE,
      main = 'Nelson-Aalen Plot for bariatric surgery revisions',
      xlab = "Revision time",
      ylab = "Survival Probabilities",
-     col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
+     col = c("#000000", "#840018", "#56B4E9", "#009E73"),
      lty = c("solid", "dashed", "dotted", "dotdash"),
-     lwd = 2)
+     lwd = 2,
+     xlim = c(0,365),
+     ylim = c(0.6,1))
 legend("topright",
-       c("agb", "dds", "gbp", "slg"),
-       col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
+       c("agb", "dds","gbp", "slg"),
+       col = c("#000000", "#840018", "#56B4E9", "#009E73"),
        lty = c("solid", "dashed", "dotted", "dotdash"))
 
 # Cox exp---------------------------------------------------------------------
-exp_plot <- survreg(Surv(time, status) ~ type,
+exp_plot <- survreg(Surv(time, status) ~ first_surgery,
                     data = km_all, dist = "exponential")
 plot(predict(exp_plot,
-             newdata = list(type = "agb"),
+             newdata = list(first_surgery = "agb"),
              type = "quantile",
              p = seq(.01,.99, by=.01)),
      seq(.99,.01,by = -.01),
@@ -209,21 +212,21 @@ plot(predict(exp_plot,
      lty = "solid",
      lwd = 2)
 lines(predict(exp_plot,
-              newdata = list(type = "dds"),
+              newdata = list(first_surgery = "dds"),
               type="quantile",
               p = seq(.01,.99,by = .01)),
       seq(.99,.01,by  =-.01),
       col = "#E69F00",
       lty = "dashed")
 lines(predict(exp_plot,
-              newdata = list(type = "gbp"),
+              newdata = list(first_surgery = "gbp"),
               type="quantile",
               p = seq(.01,.99,by = .01)),
       seq(.99,.01,by  =-.01),
       col = "#56B4E9",
       lty = "dotted")
 lines(predict(exp_plot,
-              newdata = list(type = "slg"),
+              newdata = list(first_surgery = "slg"),
               type="quantile",
               p = seq(.01,.99,by = .01)),
       seq(.99,.01,by  =-.01),
@@ -236,10 +239,10 @@ legend("topright",
 
 
 # Cox weibull -----------------------------------------------------------------
-weib_plot <- survreg(Surv(time, status) ~ type,
+weib_plot <- survreg(Surv(time, status) ~ first_surgery,
                      data = km_all, dist = "weibull")
 plot(predict(weib_plot,
-             newdata = list(type = "agb"),
+             newdata = list(first_surgery = "agb"),
              type = "quantile",
              p = seq(.01,.99, by=.01)),
      seq(.99,.01,by = -.01),
@@ -251,21 +254,21 @@ plot(predict(weib_plot,
      lty = "solid",
      lwd = 2)
 lines(predict(weib_plot,
-              newdata = list(type = "dds"),
+              newdata = list(first_surgery = "dds"),
               type="quantile",
               p = seq(.01,.99,by = .01)),
       seq(.99,.01,by  =-.01),
       col = "#E69F00",
       lty = "dashed")
 lines(predict(weib_plot,
-              newdata = list(type = "gbp"),
+              newdata = list(first_surgery = "gbp"),
               type="quantile",
               p = seq(.01,.99,by = .01)),
       seq(.99,.01,by  =-.01),
       col = "#56B4E9",
       lty = "dotted")
 lines(predict(weib_plot,
-              newdata = list(type = "slg"),
+              newdata = list(first_surgery = "slg"),
               type="quantile",
               p = seq(.01,.99,by = .01)),
       seq(.99,.01,by  =-.01),
@@ -310,14 +313,16 @@ recurrent <- surgeries %>%
     names_to = "type") %>%
   filter(value == 1) %>%
   select(-value) %>%
-  mutate(time = as.numeric(FROM_DT - lag(index)),
-         status = 1) %>% # observed event
-  filter(!time %in% c(NA, 0))
+  mutate(time = as.numeric(FROM_DT - index)) %>% # observed event
+  filter(!time %in% c(NA, 0) & (time >= 0 & time <= 1096)) %>%
+  mutate(status = ifelse(time == 1096, 0, 1))
 
 # combine patient types
-rec_all <- rbind(uniq_cases, recurrent) %>%
+rec_all <- rbind(uniq_cases, repeated) %>%
   group_by(PAT_ID) %>%
   mutate(occurrence = row_number()) %>%
+  arrange(PAT_ID, occurrence) %>%
+  mutate(first_surgery = first(type)) %>%
   filter(time > 0)
 
 view(rec_all)
@@ -337,7 +342,6 @@ patients <- unique(p_recurrent$PAT_ID)
 output_rec <- data.frame(matrix(ncol = 8, nrow = 0))
 x <- c("PAT_ID", "time", "diff", "n", "tstart", "tstop", "enr_last", "index")
 colnames(output_rec) <- x
-
 
 for(i in 1:length(unique(patients))){
   # create a separate df for 1 patient
@@ -361,16 +365,16 @@ for(i in 1:length(unique(patients))){
   output_rec <- rbind(output_rec, df)
 }
 
-output_rec <- output_rec %>%
-  mutate(tstop = ifelse(tstop < 0, 0, tstop)) %>%
+output <- output_rec %>%
+  mutate(tstop = ifelse(tstop < 0, 0, tstop),
+         tstop = ifelse(tstop > 1096, 1096, tstop)) %>%
   select("PAT_ID", "n", "tstart", "tstop")
-view(output_rec)
+view(output)
 
-
-## patients who experienced 1 event
+## patients who experienced 0 event
 p_nonrecurrent <-  rec_all %>%
   group_by(PAT_ID) %>%
-  filter(status == 1 & n() == 1) %>%
+  filter(n() == 1) %>%
   mutate(tstart = 0,
          tstop = as.numeric(difftime(FROM_DT, index, units = c("days"))),
          n = 1) %>%
@@ -381,11 +385,12 @@ p_no <- rec_all %>%
   group_by(PAT_ID) %>%
   filter(status == 0) %>%
   mutate(tstart = 0,
-         tstop = as.numeric(difftime(enr_last, index, units = c("days"))),
+         # tstop = as.numeric(difftime(enr_last, index, units = c("days"))),
+         tstop = 1096,
          n = 1) %>%
   select("PAT_ID", "n", "tstart", "tstop")
 
-output_all <- rbind(output_rec, p_nonrecurrent, p_no) %>%
+output_all <- rbind(output, p_nonrecurrent, p_no) %>%
   filter(tstop > 0 & (tstart < tstop))
 
 
@@ -410,7 +415,7 @@ plot(survfit(model_AG),
      ylab = "Survival Probabilities",
      col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
      lty = c("solid", "dashed", "dotted", "dotdash"),
-     lwd = 1)
+     lwd = 1, xlim = c(0,1096))
 legend("bottomright",
        c("agb", "dds", "gbp", "slg"),
        col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
@@ -434,7 +439,7 @@ plot(survfit(model_pwptt),
      ylab = "Survival Probabilities",
      col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
      lty = c("solid", "dashed", "dotted", "dotdash"),
-     lwd = 1)
+     lwd = 1, xlim = c(0,1096))
 legend("bottomright",
        c("agb", "dds", "gbp", "slg"),
        col = c("#000000", "#E69F00", "#56B4E9", "#009E73"),
